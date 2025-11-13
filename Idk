@@ -1,0 +1,42 @@
+-- ===== Fixed Infinite Ammo: continuous refill =====
+spawnOnce("infinite_refill_loop", function()
+    while true do
+        if State.WeaponEnhancementsEnabled and State.InfiniteAmmo then
+            local char = LocalPlayer.Character
+            if char then
+                for _, tool in ipairs(char:GetChildren()) do
+                    if tool:IsA("Tool") then
+                        -- Refill IntValue / NumberValue ammo types
+                        for _, obj in ipairs(tool:GetDescendants()) do
+                            if obj:IsA("IntValue") or obj:IsA("NumberValue") then
+                                local name = obj.Name:lower()
+                                if name:match("ammo") or name:match("mag") or name:match("reserve") or name:match("storedammo") then
+                                    pcall(function() obj.Value = math.min(Settings.AmmoValue, 100) end)
+                                end
+                            end
+                        end
+                        -- Refill direct ammo properties
+                        for _, prop in ipairs({"Ammo", "StoredAmmo", "Mag"}) do
+                            local ammoProp = tool:FindFirstChild(prop)
+                            if ammoProp and (ammoProp:IsA("IntValue") or ammoProp:IsA("NumberValue")) then
+                                pcall(function() ammoProp.Value = math.min(Settings.AmmoValue, 100) end)
+                            end
+                        end
+                        -- Optional: patch module if exists
+                        for _, child in ipairs(tool:GetChildren()) do
+                            if child:IsA("ModuleScript") then
+                                local ok, mod = pcall(require, child)
+                                if ok and type(mod) == "table" then
+                                    for _, prop in ipairs({"Ammo", "StoredAmmo"}) do
+                                        if rawget(mod, prop) ~= nil then
+                                            pcall(function() mod[prop] = math.min(Settings.AmmoValue, 100) end)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            task.wait(0.1) -- very frequent refill for rapid fire
+    
