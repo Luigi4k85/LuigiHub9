@@ -1,0 +1,761 @@
+-- Luigi Hub | Rivals v3 (Rayfield)
+-- Rayfield-based Rivals-only hub: AutoFarm, ESP, Aimbot, InfiniteAmmo, RapidFire, NoRecoil, Movement, Fly, Noclip, GodMode
+-- Mobile-friendly (throttled loops), settings saved to JSON
+-- Author: generated for you
+
+-- ===== Services =====
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ===== Rayfield loader =====
+local ok, Rayfield = pcall(function()
+	return loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Rayfield/master/source"))()
+end)
+if not ok or not Rayfield then
+	warn("Rayfield failed to load. Make sure your executor supports HttpGet and the URL is reachable.")
+	return
+end
+
+-- ===== Settings =====
+local DefaultSettings = {
+	Theme = "Dark",
+	Accent = Color3.fromRGB(0, 170, 255),
+	AutoLoad = false,
+	AutoFarm = false,
+	ESPEnabled = true,
+	AimbotEnabled = false,
+	AimbotFOV = 90,
+	AimKey = Enum.UserInputType.Touch, -- placeholder for mobile; we use screen touch
+	InfiniteAmmo = false,
+	RapidFire = false,
+	NoRecoil = false,
+	WalkSpeedEnabled = false,
+	WalkSpeed = 16,
+	JumpPowerEnabled = false,
+	JumpPower = 50,
+	FlyEnabled = false,
+	FlySpeed = 50,
+	NoclipEnabled = false,
+	GodModeEnabled = false,
+	AutoFarmInterval = 1.0,
+	ESPTeamCheck = false -- whether to hide teammates in ESP
+}
+local SettingsFile = "LuigiHubRivals_v3_Settings.json"
+local Settings = table.clone(DefaultSettings)
+
+local function loadSettings()
+	if isfile and isfile(SettingsFile) then
+		local ok, data = pcall(function() return HttpService:JSONDecode(readfile(SettingsFile)) end)
+		if ok and type(data) == "table" then
+			for k, v in pairs(DefaultSettings) do
+				if data[k] == nil then data[k] = v end
+			end
+			Settings = data
+		end
+	end
+end
+
+local function saveSettings()
+	if writefile then
+		pcall(function()
+			writefile(SettingsFile, HttpService:JSONEncode(Settings))
+		end)
+	end
+end
+
+pcall(loadSettings)
+
+-- ===== Utility =====
+local function notify(title, content, duration)
+	pcall(function()
+		Rayfield:Notify({
+			Title = title or "Luigi Hub",
+			Content = content or "",
+			Duration = duration or 3
+		})
+	end)
+end
+
+local function safeFindHumanoidRootPart(character)
+	if not character then return nil end
+	return character:FindFirstChild("HumanoidRootPart") or character:FindFirstChildWhichIsA("BasePart")
+end
+
+local function isAlive(player)
+	if not player or not player.Character then return false end
+	local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+	return humanoid and humanoid.Health > 0
+end
+
+-- ===== UI =====
+local Window = Rayfield:CreateWindow({
+  Name = "Luigi Hub | Rivals v3",
+  LoadingTitle = "Luigi Hub",
+  LoadingSubtitle = "Rivals v3 — Rayfield",
+  ConfigurationSaving = {
+    Enabled = false, -- we manage saving ourselves
+    FolderName = nil,
+    FileName = nil
+  },
+  Discord = {
+    Enabled = false
+  }
+})
+
+-- Tabs
+local tabMain = Window:CreateTab("Main")
+local tabVisuals = Window:CreateTab("Visuals")
+local tabMovement = Window:CreateTab("Movement")
+local tabSettings = Window:CreateTab("Settings")
+local tabInfo = Window:CreateTab("Info")
+
+-- ===== Feature state =====
+local Feature = {
+	ESPHighlights = {},
+	ESPRunning = false,
+	AimbotRunning = false,
+	AutoFarmRunning = false,
+	FlyObjects = {},
+	NoclipConn = nil,
+	AutoFarmConn = nil
+}
+
+-- ===== Visuals (ESP) Implementation =====
+local function enableESP(enable)
+	Settings.ESPEnabled = enable
+	saveSettings()
+
+	if enable and not Feature.ESPRunning then
+		Feature.ESPRunning = true
+		-- create highlights for players
+		spawn(function()
+			while Feature.ESPRunning do
+				for _, pl in pairs(Players:GetPlayers()) do
+					if pl ~= LocalPlayer and isAlive(pl) then
+						if Settings.ESPTeamCheck and pl.Team == LocalPlayer.Team then
+							-- skip teammates if team check enabled
+						else
+							local char = pl.Character
+							local hrp = safeFindHumanoidRootPart(char)
+							if hrp then
+								if not Feature.ESPHighlights[pl] or not Feature.ESPHighlights[pl].Parent then
+									local ok, highlight = pcall(function()
+										local h = Instance.new("Highlight")
+										h.Name = "LuigiESP"
+										h.Adornee = char
+										h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+										h.FillTransparency = 0.6
+										h.OutlineTransparency = 0.5
+										h.Parent = game:GetService("CoreGui") -- put in CoreGui (some executors require different parents)
+										return h
+									end)
+									if ok and highlight then
+										Feature.ESPHighlights[pl] = highlight
+									end
+								end
+							end
+						end
+					else
+						-- remove highlight if exists
+						if Feature.ESPHighlights[pl] then
+							pcall(function()
+								Feature.ESPHighlights[pl]:Destroy()
+							end)
+							Feature.ESPHighlights[pl] = nil
+						end
+					end
+				end
+				-- clean up leftover highlights for players that left
+				for pl, h in pairs(Feature.ESPHighlights) do
+					if not Players:FindFirstChild(pl.Name) or not isAlive(pl) or (Settings.ESPTeamCheck and pl.Team == LocalPlayer.Team) then
+						pcall(function() h:Destroy() end)
+						Feature.ESPHighlights[pl] = nil
+					end
+				end
+				task.wait(0.8) -- throttled for mobile
+			end
+			-- cleanup when turning off
+			for pl, h in pairs(Feature.ESPHighlights) do
+				pcall(function() h:Destroy() end)
+			end
+			Feature.ESPHighlights = {}
+		end)
+	elseif not enable and Feature.ESPRunning then
+		Feature.ESPRunning = false
+	end
+end
+
+-- ===== AutoFarm (generic attempt) =====
+local function autoFarmLoop(interval)
+	if Feature.AutoFarmRunning then return end
+	Feature.AutoFarmRunning = true
+	spawn(function()
+		while Feature.AutoFarmRunning do
+			-- Generic auto-action: try to use tool or fire common remotes
+			pcall(function()
+				-- try activate tool in hand
+				local char = LocalPlayer.Character
+				if char then
+					local humanoid = char:FindFirstChildOfClass("Humanoid")
+					local tool = char:FindFirstChildWhichIsA("Tool")
+					if tool and tool.Parent == char then
+						-- attempt to use tool
+						if tool:FindFirstChild("Activate") and tool.Activate:IsA("RemoteEvent") then
+							pcall(function() tool.Activate:FireServer() end)
+						else
+							-- call Tool:Activate if method exists
+							if tool.Activate then
+								pcall(function() tool:Activate() end)
+							else
+								-- simulate click
+								pcall(function() tool:FireServer() end)
+							end
+						end
+					end
+				end
+
+				-- attempt to find common remote names and fire them
+				local commonRemotes = {"Collect", "Harvest", "Pickup", "Use", "Click", "Fire", "FireServer"}
+				for _, rname in ipairs(commonRemotes) do
+					local candidates = {}
+					-- search ReplicatedStorage and workspace
+					local rs = game:GetService("ReplicatedStorage")
+					if rs and rs:FindFirstChild(rname) and rs[rname]:IsA("RemoteEvent") then
+						pcall(function() rs[rname]:FireServer() end)
+					end
+					if workspace:FindFirstChild(rname) and workspace[rname]:IsA("RemoteEvent") then
+						pcall(function() workspace[rname]:FireServer() end)
+					end
+					-- try on local tools
+					if LocalPlayer.Backpack then
+						for _, v in pairs(LocalPlayer.Backpack:GetChildren()) do
+							if v.Name:lower():match(rname:lower()) and v:IsA("Tool") then
+								pcall(function()
+									if v.Activate then v:Activate() end
+								end)
+							end
+						end
+					end
+				end
+			end)
+			task.wait(interval or Settings.AutoFarmInterval or 1)
+		end
+		Feature.AutoFarmRunning = false
+	end)
+end
+
+local function stopAutoFarm()
+	Feature.AutoFarmRunning = false
+end
+
+-- ===== Aimbot (assist) =====
+local function getClosestEnemy(maxFOV)
+	maxFOV = maxFOV or Settings.AimbotFOV
+	local closest, shortest = nil, maxFOV
+	local mouse = LocalPlayer:GetMouse()
+	if not Camera then Camera = workspace.CurrentCamera end
+	for _, pl in pairs(Players:GetPlayers()) do
+		if pl ~= LocalPlayer and isAlive(pl) then
+			if Settings.ESPTeamCheck and pl.Team == LocalPlayer.Team then
+				-- skip teammate
+			else
+				local char = pl.Character
+				local hrp = safeFindHumanoidRootPart(char)
+				if hrp then
+					local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+					if onScreen then
+						local dx = (screenPos.X - mouse.X)
+						local dy = (screenPos.Y - mouse.Y)
+						local dist = math.sqrt(dx*dx + dy*dy)
+						if dist < shortest then
+							shortest = dist
+							closest = pl
+						end
+					end
+				end
+			end
+		end
+	end
+	return closest
+end
+
+local aimHold = false
+local aimConn
+local function setAimbot(enable)
+	Settings.AimbotEnabled = enable
+	saveSettings()
+
+	if enable and not Feature.AimbotRunning then
+		Feature.AimbotRunning = true
+		notify("Aimbot", "Aim assist enabled", 3)
+		-- Connect to RenderStepped for smoothing (throttled)
+		aimConn = RunService.RenderStepped:Connect(function(dt)
+			if not Settings.AimbotEnabled then return end
+			if not LocalPlayer.Character or not Camera then return end
+			-- on mobile, aim when screen is touched OR when toggle active (we treat always-on as assist)
+			-- We'll move camera to look at target while aiming
+			local target = getClosestEnemy(Settings.AimbotFOV)
+			if target and target.Character then
+				local hrp = safeFindHumanoidRootPart(target.Character)
+				if hrp then
+					-- Smoothly rotate camera towards target
+					local camPos = Camera.CFrame.Position
+					local targetPos = hrp.Position
+					local newCF = CFrame.new(camPos, targetPos)
+					-- Tween small lerp for smoothing
+					Camera.CFrame = Camera.CFrame:Lerp(newCF, math.clamp(12 * dt, 0, 1))
+				end
+			end
+		end)
+	elseif not enable and Feature.AimbotRunning then
+		Feature.AimbotRunning = false
+		if aimConn then aimConn:Disconnect() aimConn = nil end
+		notify("Aimbot", "Aim assist disabled", 2)
+	end
+end
+
+-- ===== Movement: WalkSpeed & JumpPower =====
+local function applyWalkSpeed(enable)
+	Settings.WalkSpeedEnabled = enable
+	saveSettings()
+	spawn(function()
+		while Settings.WalkSpeedEnabled do
+			local char = LocalPlayer.Character
+			if char then
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				if hum then
+					pcall(function() hum.WalkSpeed = Settings.WalkSpeed end)
+				end
+			end
+			task.wait(0.5)
+		end
+	end)
+end
+
+local function applyJumpPower(enable)
+	Settings.JumpPowerEnabled = enable
+	saveSettings()
+	spawn(function()
+		while Settings.JumpPowerEnabled do
+			local char = LocalPlayer.Character
+			if char then
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				if hum then
+					pcall(function() hum.JumpPower = Settings.JumpPower end)
+				end
+			end
+			task.wait(0.5)
+		end
+	end)
+end
+
+-- ===== Fly =====
+local flyBV, flyBG
+local function setFly(enable)
+	Settings.FlyEnabled = enable
+	saveSettings()
+	if enable then
+		local char = LocalPlayer.Character
+		if not char then notify("Fly", "No character found", 3) return end
+		local hrp = safeFindHumanoidRootPart(char)
+		if not hrp then notify("Fly", "No HumanoidRootPart found", 3) return end
+
+		flyBV = Instance.new("BodyVelocity")
+		flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+		flyBV.Velocity = Vector3.new(0,0,0)
+		flyBV.Parent = hrp
+
+		flyBG = Instance.new("BodyGyro")
+		flyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+		flyBG.Parent = hrp
+
+		local moveVector = Vector3.new(0,0,0)
+		local speed = Settings.FlySpeed or 50
+
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			if not Settings.FlyEnabled then
+				conn:Disconnect()
+				return
+			end
+			local look = Camera.CFrame
+			local forward = look.LookVector
+			local right = look.RightVector
+			moveVector = Vector3.new(0,0,0)
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVector = moveVector + forward end
+			if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVector = moveVector - forward end
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVector = moveVector - right end
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVector = moveVector + right end
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveVector = moveVector + Vector3.new(0,1,0) end
+			if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then moveVector = moveVector - Vector3.new(0,1,0) end
+
+			flyBV.Velocity = moveVector.Unit * speed
+			flyBG.CFrame = CFrame.new(hrp.Position, hrp.Position + Camera.CFrame.LookVector)
+		end)
+		notify("Fly", "Fly enabled (use WASD + Space/CTRL)", 4)
+	else
+		if flyBV then pcall(function() flyBV:Destroy() end) flyBV = nil end
+		if flyBG then pcall(function() flyBG:Destroy() end) flyBG = nil end
+		notify("Fly", "Fly disabled", 2)
+	end
+end
+
+-- ===== Noclip =====
+local function setNoclip(enable)
+	Settings.NoclipEnabled = enable
+	saveSettings()
+	if enable then
+		Feature.NoclipConn = RunService.Stepped:Connect(function()
+			local char = LocalPlayer.Character
+			if char then
+				for _, part in pairs(char:GetDescendants()) do
+					if part:IsA("BasePart") and part.CanCollide then
+						pcall(function() part.CanCollide = false end)
+					end
+				end
+			end
+		end)
+		notify("Noclip", "Noclip enabled", 2)
+	else
+		if Feature.NoclipConn then Feature.NoclipConn:Disconnect() Feature.NoclipConn = nil end
+		-- try to restore collisions (best-effort)
+		local char = LocalPlayer.Character
+		if char then
+			for _, part in pairs(char:GetDescendants()) do
+				if part:IsA("BasePart") then
+					pcall(function() part.CanCollide = true end)
+				end
+			end
+		end
+		notify("Noclip", "Noclip disabled", 2)
+	end
+end
+
+-- ===== God Mode =====
+local function setGodMode(enable)
+	Settings.GodModeEnabled = enable
+	saveSettings()
+	if enable then
+		spawn(function()
+			while Settings.GodModeEnabled do
+				local char = LocalPlayer.Character
+				if char then
+					local hum = char:FindFirstChildOfClass("Humanoid")
+					if hum then
+						pcall(function()
+							hum.MaxHealth = math.huge
+							hum.Health = hum.MaxHealth
+						end)
+					end
+				end
+				task.wait(1)
+			end
+		end)
+		notify("God Mode", "God Mode enabled", 2)
+	else
+		-- cannot reliably restore original MaxHealth, so notify (user may rejoin)
+		notify("God Mode", "God Mode disabled (some games override server values)", 2)
+	end
+end
+
+-- ===== Infinite Ammo / Rapid Fire / No Recoil (best-effort generic attempts) =====
+local function applyCombatPatches()
+	-- Attempt to find weapons/tools and modify properties if available
+	-- This is intentionally generic — many games use remote events or server-side checks which we cannot bypass reliably
+	local function patchTool(tool)
+		pcall(function()
+			-- Some tools have properties named 'Ammo', 'FireRate', 'Recoil', 'Spread'
+			if tool and tool:IsA("Tool") then
+				if Settings.InfiniteAmmo then
+					if tool:FindFirstChild("Ammo") and tool.Ammo:IsA("NumberValue") then
+						tool.Ammo.Value = math.huge
+					end
+				end
+				if Settings.RapidFire then
+					if tool:FindFirstChild("FireRate") and tool.FireRate:IsA("NumberValue") then
+						tool.FireRate.Value = math.min(0.01, tool.FireRate.Value / 4)
+					end
+				end
+				if Settings.NoRecoil then
+					if tool:FindFirstChild("Recoil") and tool.Recoil:IsA("NumberValue") then
+						tool.Recoil.Value = 0
+					end
+					if tool:FindFirstChild("Spread") and tool.Spread:IsA("NumberValue") then
+						tool.Spread.Value = 0
+					end
+				end
+			end
+		end)
+	end
+
+	-- patch tools in backpack and character
+	spawn(function()
+		while true do
+			if Settings.InfiniteAmmo or Settings.RapidFire or Settings.NoRecoil then
+				for _, v in pairs(LocalPlayer.Backpack:GetChildren()) do patchTool(v) end
+				if LocalPlayer.Character then
+					for _, v in pairs(LocalPlayer.Character:GetChildren()) do patchTool(v) end
+				end
+			end
+			task.wait(1.2)
+		end
+	end)
+end
+
+-- Start a background task for attempted combat patches
+applyCombatPatches()
+
+-- ===== UI elements =====
+
+-- Main tab: Combat toggles
+tabMain:CreateSection("Combat")
+
+local autoFarmToggle = tabMain:CreateToggle({
+	Name = "AutoFarm",
+	CurrentValue = Settings.AutoFarm,
+	Flag = "AutoFarmToggle",
+	Callback = function(val)
+		Settings.AutoFarm = val
+		saveSettings()
+		if val then
+			autoFarmLoop(Settings.AutoFarmInterval)
+			notify("AutoFarm", "AutoFarm started", 2)
+		else
+			stopAutoFarm()
+			notify("AutoFarm", "AutoFarm stopped", 2)
+		end
+	end
+})
+
+local aimToggle = tabMain:CreateToggle({
+	Name = "Aimbot (Aim Assist)",
+	CurrentValue = Settings.AimbotEnabled,
+	Flag = "AimbotToggle",
+	Callback = function(val)
+		setAimbot(val)
+	end
+})
+
+local aimbotFOVSlider = tabMain:CreateSlider({
+	Name = "Aimbot FOV (px)",
+	Range = {10, 400, 1},
+	CurrentValue = Settings.AimbotFOV,
+	Flag = "AimbotFOV",
+	Callback = function(val)
+		Settings.AimbotFOV = val
+		saveSettings()
+	end
+})
+
+local infiniteAmmoToggle = tabMain:CreateToggle({
+	Name = "Infinite Ammo (attempt)",
+	CurrentValue = Settings.InfiniteAmmo,
+	Flag = "InfiniteAmmoToggle",
+	Callback = function(val)
+		Settings.InfiniteAmmo = val
+		saveSettings()
+		notify("InfiniteAmmo", (val and "Attempting to enable" or "Disabled attempts"), 2)
+	end
+})
+
+local rapidFireToggle = tabMain:CreateToggle({
+	Name = "Rapid Fire (attempt)",
+	CurrentValue = Settings.RapidFire,
+	Flag = "RapidFireToggle",
+	Callback = function(val)
+		Settings.RapidFire = val
+		saveSettings()
+		notify("RapidFire", (val and "Attempting to enable" or "Disabled attempts"), 2)
+	end
+})
+
+local noRecoilToggle = tabMain:CreateToggle({
+	Name = "No Recoil (attempt)",
+	CurrentValue = Settings.NoRecoil,
+	Flag = "NoRecoilToggle",
+	Callback = function(val)
+		Settings.NoRecoil = val
+		saveSettings()
+		notify("NoRecoil", (val and "Attempting to enable" or "Disabled attempts"), 2)
+	end
+})
+
+-- Visuals tab: ESP
+tabVisuals:CreateSection("ESP & Visuals")
+local espToggle = tabVisuals:CreateToggle({
+	Name = "Player ESP",
+	CurrentValue = Settings.ESPEnabled,
+	Flag = "ESPToggle",
+	Callback = function(val)
+		enableESP(val)
+	end
+})
+
+local teamCheckToggle = tabVisuals:CreateToggle({
+	Name = "Hide Teammates (ESP)",
+	CurrentValue = Settings.ESPTeamCheck,
+	Flag = "ESPTeamCheck",
+	Callback = function(val)
+		Settings.ESPTeamCheck = val
+		saveSettings()
+	end
+})
+
+-- Movement tab: WalkSpeed, JumpPower, Fly, Noclip, GodMode
+tabMovement:CreateSection("Movement")
+
+local walkToggle = tabMovement:CreateToggle({
+	Name = "Enable WalkSpeed override",
+	CurrentValue = Settings.WalkSpeedEnabled,
+	Flag = "WalkToggle",
+	Callback = function(val)
+		applyWalkSpeed(val)
+	end
+})
+
+local walkSlider = tabMovement:CreateSlider({
+	Name = "WalkSpeed",
+	Range = {8, 200, 1},
+	CurrentValue = Settings.WalkSpeed,
+	Flag = "WalkSpeed",
+	Callback = function(val)
+		Settings.WalkSpeed = val
+		saveSettings()
+	end
+})
+
+local jumpToggle = tabMovement:CreateToggle({
+	Name = "Enable JumpPower override",
+	CurrentValue = Settings.JumpPowerEnabled,
+	Flag = "JumpToggle",
+	Callback = function(val)
+		applyJumpPower(val)
+	end
+})
+
+local jumpSlider = tabMovement:CreateSlider({
+	Name = "JumpPower",
+	Range = {50, 300, 1},
+	CurrentValue = Settings.JumpPower,
+	Flag = "JumpPower",
+	Callback = function(val)
+		Settings.JumpPower = val
+		saveSettings()
+	end
+})
+
+local flyToggle = tabMovement:CreateToggle({
+	Name = "Fly",
+	CurrentValue = Settings.FlyEnabled,
+	Flag = "FlyToggle",
+	Callback = function(val)
+		setFly(val)
+	end
+})
+
+local flySpeed = tabMovement:CreateSlider({
+	Name = "Fly Speed",
+	Range = {10, 300, 1},
+	CurrentValue = Settings.FlySpeed,
+	Flag = "FlySpeed",
+	Callback = function(val)
+		Settings.FlySpeed = val
+		saveSettings()
+	end
+})
+
+local noclipToggle = tabMovement:CreateToggle({
+	Name = "Noclip",
+	CurrentValue = Settings.NoclipEnabled,
+	Flag = "NoclipToggle",
+	Callback = function(val)
+		setNoclip(val)
+	end
+})
+
+local godToggle = tabMovement:CreateToggle({
+	Name = "God Mode (attempt)",
+	CurrentValue = Settings.GodModeEnabled,
+	Flag = "GodToggle",
+	Callback = function(val)
+		setGodMode(val)
+	end
+})
+
+-- Settings tab: theme + save/load
+tabSettings:CreateSection("Interface & Save")
+local themeDropdown = tabSettings:CreateDropdown({
+	Name = "Theme",
+	Options = {"Dark","Light","Ocean","Violet","Aqua"},
+	CurrentOption = Settings.Theme or "Dark",
+	Flag = "ThemeDropdown",
+	Callback = function(option)
+		Settings.Theme = option
+		saveSettings()
+		-- Rayfield theme API not universal; we'll attempt to set accent if available
+		notify("Theme", "Theme set to "..tostring(option), 2)
+	end
+})
+
+local accentColor = tabSettings:CreateColorPicker({
+	Name = "Accent Color",
+	CurrentColor = Settings.Accent or Color3.fromRGB(0,170,255),
+	Flag = "AccentColor",
+	Callback = function(color)
+		Settings.Accent = color
+		saveSettings()
+		notify("Theme", "Accent color updated", 2)
+	end
+})
+
+tabSettings:CreateButton({
+	Name = "Save Settings Now",
+	Callback = function()
+		saveSettings()
+		notify("Save", "Settings saved", 1.6)
+	end
+})
+
+tabSettings:CreateButton({
+	Name = "Reset Settings (to defaults)",
+	Callback = function()
+		Settings = table.clone(DefaultSettings)
+		saveSettings()
+		notify("Reset", "Settings reset. Reopen the UI to refresh values.", 3)
+	end
+})
+
+-- Info tab
+tabInfo:CreateSection("About")
+tabInfo:CreateLabel("Luigi Hub | Rivals v3 — Rayfield UI")
+tabInfo:CreateLabel("Mobile-friendly. Toggle features and test per-game.")
+
+tabInfo:CreateButton({
+	Name = "Force Apply Combat Patches (attempt)",
+	Callback = function()
+		notify("Combat Patches", "Attempting to apply InfiniteAmmo/RapidFire/NoRecoil patches...", 2)
+		-- minimal trigger that will be handled by background patcher
+	end
+})
+
+-- ===== Connectors: keep UI values synced when reopened (best-effort) =====
+-- Rayfield stores values per session; we persist via Settings and saved when toggled.
+-- Ensure background loops reflect current settings
+if Settings.ESPEnabled then enableESP(true) end
+if Settings.AutoFarm then autoFarmLoop(Settings.AutoFarmInterval) end
+if Settings.AimbotEnabled then setAimbot(true) end
+if Settings.WalkSpeedEnabled then applyWalkSpeed(true) end
+if Settings.JumpPowerEnabled then applyJumpPower(true) end
+if Settings.FlyEnabled then setFly(true) end
+if Settings.NoclipEnabled then setNoclip(true) end
+if Settings.GodModeEnabled then setGodMode(true) end
+
+-- Apply a small "Script Loaded" notification
+notify("Luigi Hub", "Rivals v3 loaded (Rayfield). Good luck!", 4)
+
+-- End of script
