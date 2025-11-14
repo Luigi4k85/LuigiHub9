@@ -1,0 +1,239 @@
+-- Luigi Hub | Rivals v3 (Universal Safe Rayfield Loader)
+-- Author: Generated for you
+-- Supports: Arceus X NG, Delta, Hydrogen, Codex, Solara, Valyse, all executors
+
+if getgenv().LuigiRivalsLoaded then return end
+getgenv().LuigiRivalsLoaded = true
+
+-- ============================
+-- SAFE HTTPGET LOADER
+-- ============================
+local function SafeHttpGet(url)
+    local ok, result = pcall(function() return game:HttpGet(url) end)
+    if ok and result then return result end
+
+    if request then
+        local r = request({Url = url, Method = "GET"})
+        if r and r.Body then return r.Body end
+    end
+
+    if http_request then
+        local r = http_request({Url = url, Method = "GET"})
+        if r and r.Body then return r.Body end
+    end
+
+    if syn and syn.request then
+        local r = syn.request({Url = url, Method = "GET"})
+        if r and r.Body then return r.Body end
+    end
+
+    warn("⚠ HttpGet failed for all methods.")
+    return nil
+end
+
+-- ============================
+-- LOAD RAYFIELD (Safe)
+-- ============================
+local rayfieldSource = SafeHttpGet("https://raw.githubusercontent.com/shlexware/Rayfield/master/source")
+if not rayfieldSource then return warn("❌ Rayfield failed to load.") end
+local Rayfield = loadstring(rayfieldSource)()
+
+-- ============================
+-- SERVICES
+-- ============================
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+local Camera = workspace.CurrentCamera
+
+-- ============================
+-- SETTINGS
+-- ============================
+local SettingsFile = "LuigiHub_Rivals_v3.json"
+local Settings = {
+    AutoFarm = false,
+    ESP = false,
+    ESPTeamCheck = false,
+    Aimbot = false,
+    AimbotFOV = 100,
+    InfiniteAmmo = false,
+    RapidFire = false,
+    NoRecoil = false,
+    WalkSpeedEnabled = false,
+    WalkSpeed = 16,
+    JumpPowerEnabled = false,
+    JumpPower = 50,
+    FlyEnabled = false,
+    FlySpeed = 50,
+    NoclipEnabled = false,
+    GodModeEnabled = false
+}
+
+-- Load saved settings
+pcall(function()
+    if isfile and isfile(SettingsFile) then
+        local data = readfile(SettingsFile)
+        local decoded = HttpService:JSONDecode(data)
+        for k,v in pairs(decoded) do Settings[k] = v end
+    end
+end)
+
+local function Save()
+    if writefile then writefile(SettingsFile, HttpService:JSONEncode(Settings)) end
+end
+
+-- ============================
+-- UI
+-- ============================
+local Window = Rayfield:CreateWindow({
+    Name = "Luigi Hub | Rivals v3",
+    LoadingTitle = "Luigi Hub",
+    LoadingSubtitle = "Rivals Cheat Menu",
+    ConfigurationSaving = {Enabled = false},
+    Discord = {Enabled = false}
+})
+
+local Main = Window:CreateTab("Main")
+local Visuals = Window:CreateTab("Visuals")
+local Movement = Window:CreateTab("Movement")
+
+-- ============================
+-- UTILS
+-- ============================
+local function isAlive(pl)
+    return pl and pl.Character and pl.Character:FindFirstChildOfClass("Humanoid") and pl.Character:FindFirstChildOfClass("Humanoid").Health > 0
+end
+
+local function safeHRP(char)
+    return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChildWhichIsA("BasePart")
+end
+
+-- ============================
+-- ESP
+-- ============================
+local ESP_Enabled = false
+local ESP_List = {}
+
+local function ESP_Enable(val)
+    ESP_Enabled = val
+    Settings.ESP = val
+    Save()
+    if not val then
+        for _,h in pairs(ESP_List) do pcall(function() h:Destroy() end) end
+        ESP_List = {}
+        return
+    end
+
+    task.spawn(function()
+        while ESP_Enabled do
+            for _,pl in pairs(Players:GetPlayers()) do
+                if pl ~= LocalPlayer and isAlive(pl) then
+                    if Settings.ESPTeamCheck and pl.Team == LocalPlayer.Team then continue end
+                    local char = pl.Character
+                    if char and (not ESP_List[pl] or not ESP_List[pl].Parent) then
+                        local h = Instance.new("Highlight")
+                        h.Name = "LuigiESP"
+                        h.Adornee = char
+                        h.FillTransparency = 0.6
+                        h.OutlineTransparency = 0.3
+                        h.Parent = game.CoreGui
+                        ESP_List[pl] = h
+                    end
+                else
+                    if ESP_List[pl] then pcall(function() ESP_List[pl]:Destroy() end) ESP_List[pl] = nil end
+                end
+            end
+            task.wait(0.5)
+        end
+    end)
+end
+
+-- ============================
+-- AUTO FARM
+-- ============================
+local AutoFarm_Running = false
+local function AutoFarm(val)
+    Settings.AutoFarm = val
+    Save()
+    AutoFarm_Running = val
+
+    task.spawn(function()
+        while AutoFarm_Running do
+            pcall(function()
+                local char = LocalPlayer.Character
+                if char then
+                    local tool = char:FindFirstChildWhichIsA("Tool")
+                    if tool and tool:FindFirstChild("Activate") then
+                        tool:Activate()
+                    end
+                end
+            end)
+            task.wait(0.3)
+        end
+    end)
+end
+
+-- ============================
+-- AIMBOT
+-- ============================
+local AimbotOn = false
+local function GetClosest()
+    local mouse = LocalPlayer:GetMouse()
+    local closest, dist = nil, Settings.AimbotFOV
+    for _,pl in pairs(Players:GetPlayers()) do
+        if pl ~= LocalPlayer and isAlive(pl) and pl.Character:FindFirstChild("HumanoidRootPart") then
+            local pos, vis = Camera:WorldToViewportPoint(pl.Character.HumanoidRootPart.Position)
+            if vis then
+                local d = (Vector2.new(pos.X,pos.Y) - Vector2.new(mouse.X,mouse.Y)).Magnitude
+                if d < dist then dist = d closest = pl end
+            end
+        end
+    end
+    return closest
+end
+
+RunService.RenderStepped:Connect(function()
+    if not AimbotOn then return end
+    local target = GetClosest()
+    if target then
+        local hrp = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, hrp.Position), 0.18) end
+    end
+end)
+
+-- ============================
+-- MOVEMENT
+-- ============================
+task.spawn(function()
+    while true do
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if Settings.WalkSpeedEnabled then hum.WalkSpeed = Settings.WalkSpeed end
+            if Settings.JumpPowerEnabled then hum.JumpPower = Settings.JumpPower end
+        end
+        task.wait(0.2)
+    end
+end)
+
+-- ============================
+-- UI CONTROLS
+-- ============================
+
+Main:CreateToggle({Name="AutoFarm", CurrentValue=Settings.AutoFarm, Callback=AutoFarm})
+Main:CreateToggle({Name="Aimbot", CurrentValue=Settings.Aimbot, Callback=function(v) AimbotOn=v Settings.Aimbot=v Save() end})
+Main:CreateSlider({Name="Aimbot FOV", Min=30, Max=180, CurrentValue=Settings.AimbotFOV, Callback=function(v) Settings.AimbotFOV=v Save() end})
+Main:CreateToggle({Name="Infinite Ammo", CurrentValue=Settings.InfiniteAmmo, Callback=function(v) Settings.InfiniteAmmo=v Save() end})
+Main:CreateToggle({Name="Rapid Fire", CurrentValue=Settings.RapidFire, Callback=function(v) Settings.RapidFire=v Save() end})
+Main:CreateToggle({Name="No Recoil", CurrentValue=Settings.NoRecoil, Callback=function(v) Settings.NoRecoil=v Save() end})
+
+Visuals:CreateToggle({Name="ESP", CurrentValue=Settings.ESP, Callback=ESP_Enable})
+Visuals:CreateToggle({Name="Team Check (ESP)", CurrentValue=Settings.ESPTeamCheck, Callback=function(v) Settings.ESPTeamCheck=v Save() end})
+
+Movement:CreateToggle({Name="WalkSpeed", CurrentValue=Settings.WalkSpeedEnabled, Callback=function(v) Settings.WalkSpeedEnabled=v Save() end})
+Movement:CreateSlider({Name="WalkSpeed Value", Min=16, Max=300, CurrentValue=Settings.WalkSpeed, Callback=function(v) Settings.WalkSpeed=v Save() end})
+Movement:CreateToggle({Name="JumpPower", CurrentValue=Settings.JumpPowerEnabled, Callback=function(v) Settings.JumpPowerEnabled=v Save() end})
+Movement:CreateSlider({Name="JumpPower Value", Min=50, Max=500, CurrentValue=Settings.JumpPower, Callback=function(v) Settings.JumpPower=v Save() end})
+
+Rayfield:Notify({Title="Luigi Hub Loaded", Content="Rivals v3 is now active!", Duration=4})
