@@ -1,0 +1,269 @@
+--========================================--
+--        LUIGI • Gun Testing PVP Hub
+--        Arceus X v5 • Rayfield UI
+--========================================--
+
+if getgenv().LuigiPVP then return end
+getgenv().LuigiPVP = true
+
+--========= SERVICES =========--
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+--========================================--
+--          LOAD RAYFIELD UI
+--========================================--
+
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Luigi Hub • Gun Testing PVP",
+   LoadingTitle = "Loading Luigi Hub...",
+   LoadingSubtitle = "ACS Aimbot & Silent Aim Engine",
+   ConfigurationSaving = { Enabled = false }
+})
+
+--========================================--
+--            GLOBAL VARIABLES
+--========================================--
+local Settings = {
+    SilentAim = false,
+    SilentMode = 1, -- 1: crosshair, 2: closest player
+    Aimbot = false,
+    AimbotSmooth = 0.17,
+    TriggerBot = false,
+    NoRecoil = false,
+    NoSpread = false,
+    WalkSpeed = 16,
+    JumpPower = 50,
+    ESP = false,
+    TeamCheck = true
+}
+
+--========================================--
+--            FOV CIRCLE
+--========================================--
+local FOV = Drawing.new("Circle")
+FOV.Visible = true
+FOV.Color = Color3.fromRGB(0,255,120)
+FOV.Thickness = 2
+FOV.Radius = 150
+FOV.Filled = false
+
+RunService.RenderStepped:Connect(function()
+    FOV.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+end)
+
+--========================================--
+--    FIND TARGET FUNCTIONS (VERY GOOD)
+--========================================--
+
+local function GetClosestToCrosshair()
+    local closest, dist = nil, math.huge
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            if Settings.TeamCheck and plr.Team == LocalPlayer.Team then continue end
+            local pos, onScreen = Camera:WorldToViewportPoint(plr.Character.HumanoidRootPart.Position)
+            if onScreen then
+                local mag = (Vector2.new(pos.X,pos.Y) - Vector2.new(Mouse.X, Mouse.Y)).Magnitude
+                if mag < dist and mag < FOV.Radius then
+                    dist = mag
+                    closest = plr
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function GetClosestPlayer()
+    local closest, dist = nil, math.huge
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            if Settings.TeamCheck and plr.Team == LocalPlayer.Team then continue end
+            local mag = (plr.Character.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+            if mag < dist then
+                dist = mag
+                closest = plr
+            end
+        end
+    end
+    return closest
+end
+
+local function GetTarget()
+    if Settings.SilentMode == 1 then
+        return GetClosestToCrosshair()
+    else
+        return GetClosestPlayer()
+    end
+end
+
+--========================================--
+--            SILENT AIM HOOK
+--========================================--
+
+local mt = getrawmetatable(game)
+setreadonly(mt, false)
+local old = mt.__namecall
+
+mt.__namecall = function(self, ...)
+    local args = {...}
+    local method = getnamecallmethod()
+
+    if Settings.SilentAim and method == "FireServer" then
+        local target = GetTarget()
+        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            if typeof(args[2]) == "Vector3" then
+                args[2] = target.Character.HumanoidRootPart.Position
+                return old(self, unpack(args))
+            end
+        end
+    end
+
+    return old(self, ...)
+end
+
+--========================================--
+--             AIMBOT
+--========================================--
+
+RunService.RenderStepped:Connect(function()
+    if Settings.Aimbot then
+        local target = GetTarget()
+        if target and target.Character and target.Character:FindFirstChild("Head") then
+            local pos = target.Character.Head.Position
+            local screen = Camera:WorldToViewportPoint(pos)
+            mousemoverel((screen.X - Mouse.X) * Settings.AimbotSmooth,
+                         (screen.Y - Mouse.Y) * Settings.AimbotSmooth)
+        end
+    end
+end)
+
+--========================================--
+--            TRIGGERBOT
+--========================================--
+RunService.RenderStepped:Connect(function()
+    if Settings.TriggerBot then
+        local target = GetClosestToCrosshair()
+        if target and target.Character:FindFirstChild("Head") then
+            mouse1click()
+        end
+    end
+end)
+
+--========================================--
+--            NO RECOIL + NO SPREAD
+--========================================--
+task.spawn(function()
+    while true do
+        task.wait()
+        if Settings.NoRecoil or Settings.NoSpread then
+            for _, v in pairs(getgc(true)) do
+                if type(v) == "table" then
+                    if Settings.NoRecoil and rawget(v, "Recoil") then v.Recoil = 0 end
+                    if Settings.NoSpread and rawget(v, "Spread") then v.Spread = 0 end
+                end
+            end
+        end
+    end
+end)
+
+--========================================--
+--               ESP
+--========================================--
+
+local function MakeESP(plr)
+    local box = Drawing.new("Square")
+    box.Thickness = 2
+    box.Color = Color3.new(0, 1, 0)
+    box.Filled = false
+
+    local name = Drawing.new("Text")
+    name.Size = 15
+    name.Center = true
+    name.Color = Color3.new(1, 1, 1)
+
+    RunService.RenderStepped:Connect(function()
+        if Settings.ESP and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local root = plr.Character.HumanoidRootPart
+            local head = plr.Character.Head
+            local pos, vis = Camera:WorldToViewportPoint(root.Position)
+
+            if vis then
+                local height = math.abs(Camera:WorldToViewportPoint(head.Position).Y - pos.Y)
+                local width = height / 2
+
+                box.Size = Vector2.new(width, height)
+                box.Position = Vector2.new(pos.X - width / 2, pos.Y - height / 2)
+                box.Visible = true
+
+                name.Text = plr.Name
+                name.Position = Vector2.new(pos.X, pos.Y - height/2 - 16)
+                name.Visible = true
+            else
+                box.Visible = false
+                name.Visible = false
+            end
+        else
+            box.Visible = false
+            name.Visible = false
+        end
+    end)
+end
+
+for _, plr in pairs(Players:GetPlayers()) do
+    if plr ~= LocalPlayer then
+        MakeESP(plr)
+    end
+end
+
+Players.PlayerAdded:Connect(function(plr)
+    MakeESP(plr)
+end)
+
+--========================================--
+--              RAYFIELD UI
+--========================================--
+
+local TabAimbot = Window:CreateTab("Aimbot")
+TabAimbot:CreateToggle("Silent Aim", false, function(v) Settings.SilentAim = v end)
+TabAimbot:CreateDropdown({
+    Name = "Silent Aim Mode",
+    Options = {"Closest to Crosshair", "Closest Player"},
+    CurrentOption = "Closest to Crosshair",
+    Callback = function(option)
+        Settings.SilentMode = (option == "Closest Player") and 2 or 1
+    end
+})
+
+TabAimbot:CreateToggle("Aimbot (Smooth)", false, function(v) Settings.Aimbot = v end)
+
+local TabCombat = Window:CreateTab("Combat")
+TabCombat:CreateToggle("TriggerBot", false, function(v) Settings.TriggerBot = v end)
+TabCombat:CreateToggle("No Recoil", false, function(v) Settings.NoRecoil = v end)
+TabCombat:CreateToggle("No Spread", false, function(v) Settings.NoSpread = v end)
+
+local TabPlayer = Window:CreateTab("Player")
+TabPlayer:CreateSlider("WalkSpeed", 16, 200, 16, false, function(value)
+    Settings.WalkSpeed = value
+    LocalPlayer.Character.Humanoid.WalkSpeed = value
+end)
+TabPlayer:CreateSlider("JumpPower", 50, 200, 50, false, function(value)
+    Settings.JumpPower = value
+    LocalPlayer.Character.Humanoid.JumpPower = value
+end)
+
+local TabESP = Window:CreateTab("ESP")
+TabESP:CreateToggle("ESP Enabled", false, function(v) Settings.ESP = v end)
+
+Rayfield:Notify({
+    Title = "Luigi Hub Loaded!",
+    Content = "Gun Testing PVP Cheat Loaded Successfully!",
+    Duration = 6
+})
