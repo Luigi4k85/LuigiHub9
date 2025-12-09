@@ -1,0 +1,147 @@
+-- FarmServer.lua (ServerScriptService)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+local PlantSeed = remotes:WaitForChild("PlantSeed")
+local HarvestPlant = remotes:WaitForChild("HarvestPlant")
+
+local PlantsFolder = Workspace:FindFirstChild("Plants") or Instance.new("Folder", Workspace)
+PlantsFolder.Name = "Plants"
+
+-- Config for seed types
+local SeedConfigs = {
+    ["AppleSeed"] = {growTime = 10, reward = 10, size = Vector3.new(2,2,2)},
+    ["BerrySeed"] = {growTime = 6, reward = 6, size = Vector3.new(1.5,1.5,1.5)},
+    ["GoldSeed"] = {growTime = 20, reward = 30, size = Vector3.new(2.5,2.5,2.5)}
+}
+
+-- create leaderstats for coins
+Players.PlayerAdded:Connect(function(player)
+    local leaderstats = Instance.new("Folder")
+    leaderstats.Name = "leaderstats"
+    leaderstats.Parent = player
+
+    local coins = Instance.new("IntValue")
+    coins.Name = "Coins"
+    coins.Value = 0
+    coins.Parent = leaderstats
+end)
+
+-- Utility to validate planting surface
+local function isSurfaceValid(hitPart, position)
+    if not hitPart then return false end
+    -- simple check: don't plant on moving platforms or terrain; adjust as needed
+    return true
+end
+
+-- Spawn a visual plant object
+local function spawnPlantObject(owner, seedType, position)
+    local cfg = SeedConfigs[seedType]
+    if not cfg then return end
+
+    local plantPart = Instance.new("Part")
+    plantPart.Size = cfg.size
+    plantPart.Anchored = true
+    plantPart.CanCollide = false
+    plantPart.Position = position + Vector3.new(0, cfg.size.Y/2, 0)
+    plantPart.Name = "Plant_" .. seedType
+    plantPart.Parent = PlantsFolder
+
+    local ownerValue = Instance.new("ObjectValue")
+    ownerValue.Name = "Owner"
+    ownerValue.Value = owner
+    ownerValue.Parent = plantPart
+
+    local seedValue = Instance.new("StringValue")
+    seedValue.Name = "SeedType"
+    seedValue.Value = seedType
+    seedValue.Parent = plantPart
+
+    local mature = Instance.new("BoolValue")
+    mature.Name = "Mature"
+    mature.Value = false
+    mature.Parent = plantPart
+
+    local plantedAt = Instance.new("NumberValue")
+    plantedAt.Name = "PlantedAt"
+    plantedAt.Value = tick()
+    plantedAt.Parent = plantPart
+
+    -- simple visual: initial color for seed, change when mature
+    plantPart.Color = Color3.fromRGB(120, 180, 80)
+    return plantPart
+end
+
+-- Grow routine
+local function growPlant(plantPart)
+    local seedType = plantPart:FindFirstChild("SeedType") and plantPart.SeedType.Value
+    if not seedType then return end
+    local cfg = SeedConfigs[seedType]
+    if not cfg then return end
+
+    local growTime = cfg.growTime
+    -- Wait for growth time (non-blocking)
+    spawn(function()
+        local t0 = tick()
+        while tick() - t0 < growTime do
+            wait(0.5)
+            -- optional: add small scale animation over time
+            local ratio = math.clamp((tick() - t0)/growTime, 0, 1)
+            plantPart.Size = cfg.size:Lerp(cfg.size * 1.2, ratio*0.5)
+            plantPart.Position = Vector3.new(plantPart.Position.X, plantPart.Size.Y/2, plantPart.Position.Z)
+        end
+        -- mark mature
+        local mature = plantPart:FindFirstChild("Mature")
+        if mature then mature.Value = true end
+        plantPart.Color = Color3.fromRGB(20, 150, 50) -- visually different
+    end)
+end
+
+-- PlantSeed remote (client asks to plant at a world position)
+PlantSeed.OnServerEvent:Connect(function(player, seedType, targetPosition, targetPart)
+    -- Basic validation
+    if not SeedConfigs[seedType] then return end
+    if not isSurfaceValid(targetPart, targetPosition) then return end
+
+    local plant = spawnPlantObject(player, seedType, targetPosition)
+    if plant then
+        growPlant(plant)
+    end
+end)
+
+-- Harvest remote: client requests to harvest a specific plant Instance (by Instance path)
+HarvestPlant.OnServerEvent:Connect(function(player, plant)
+    if typeof(plant) ~= "Instance" then return end
+    if not plant:IsDescendantOf(PlantsFolder) then return end
+
+    local ownerValue = plant:FindFirstChild("Owner")
+    local mature = plant:FindFirstChild("Mature")
+    local seedType = plant:FindFirstChild("SeedType")
+
+    if not ownerValue or not mature or not seedType then return end
+    -- Only owner can harvest (change this if you want shared harvesting)
+    if ownerValue.Value ~= player then return end
+    if not mature.Value then return end
+
+    -- give reward
+    local cfg = SeedConfigs[seedType.Value]
+    if cfg then
+        local coins = player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Coins")
+        if coins then
+            coins.Value = coins.Value + cfg.reward
+        end
+    end
+
+    -- visual effect then destroy
+    local debrisPart = Instance.new("Part")
+    debrisPart.Anchored = true
+    debrisPart.CanCollide = false
+    debrisPart.Size = Vector3.new(1,1,1)
+    debrisPart.Position = plant.Position + Vector3.new(0,2,0)
+    debrisPart.Parent = Workspace
+    game:GetService("Debris"):AddItem(debrisPart, 1)
+
+    plant:Destroy()
+end)
