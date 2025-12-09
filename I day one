@@ -1,0 +1,106 @@
+-- FarmClient.lua (LocalScript in StarterPlayerScripts)
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local camera = workspace.CurrentCamera
+
+local player = Players.LocalPlayer
+local mouse = player:GetMouse()
+
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+local PlantSeed = remotes:WaitForChild("PlantSeed")
+local HarvestPlant = remotes:WaitForChild("HarvestPlant")
+
+-- Basic GUI builder (if you already made UI, skip this)
+local screenGui = player:WaitForChild("PlayerGui"):FindFirstChild("FarmGUI")
+if not screenGui then
+    screenGui = Instance.new("ScreenGui", player.PlayerGui)
+    screenGui.Name = "FarmGUI"
+end
+
+-- Minimal display: show selected seed and hint
+local frame = Instance.new("Frame", screenGui)
+frame.Size = UDim2.new(0, 220, 0, 80)
+frame.Position = UDim2.new(0, 10, 1, -100)
+frame.BackgroundTransparency = 0.3
+frame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+frame.BorderSizePixel = 0
+
+local seedLabel = Instance.new("TextLabel", frame)
+seedLabel.Size = UDim2.new(1, -10, 0, 30)
+seedLabel.Position = UDim2.new(0, 5, 0, 5)
+seedLabel.Text = "Seed: AppleSeed (left-click to plant)"
+seedLabel.TextColor3 = Color3.new(1,1,1)
+seedLabel.BackgroundTransparency = 1
+
+local harvestLabel = Instance.new("TextLabel", frame)
+harvestLabel.Size = UDim2.new(1, -10, 0, 30)
+harvestLabel.Position = UDim2.new(0, 5, 0, 40)
+harvestLabel.Text = "Right-click plant to harvest when green"
+harvestLabel.TextColor3 = Color3.new(1,1,1)
+harvestLabel.BackgroundTransparency = 1
+
+-- Simple seed selection cycling with number keys
+local seedTypes = {"AppleSeed", "BerrySeed", "GoldSeed"}
+local selectedIndex = 1
+local function updateSeedLabel()
+    seedLabel.Text = ("Seed: %s (left-click to plant)"):format(seedTypes[selectedIndex])
+end
+updateSeedLabel()
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.One then
+        selectedIndex = 1; updateSeedLabel()
+    elseif input.KeyCode == Enum.KeyCode.Two then
+        selectedIndex = 2; updateSeedLabel()
+    elseif input.KeyCode == Enum.KeyCode.Three then
+        selectedIndex = 3; updateSeedLabel()
+    end
+end)
+
+-- Planting (left click): raycast to ground / parts, send world position
+mouse.Button1Down:Connect(function()
+    local unitRay = camera:ScreenPointToRay(mouse.X, mouse.Y)
+    local ray = Ray.new(unitRay.Origin, unitRay.Direction * 500)
+    local hit, pos, normal = workspace:FindPartOnRay(ray, player.Character, false, true)
+    if hit and pos then
+        -- adjust position to plant nicely on surface
+        local targetPos = Vector3.new(pos.X, pos.Y, pos.Z)
+        PlantSeed:FireServer(seedTypes[selectedIndex], targetPos, hit)
+    end
+end)
+
+-- Harvest (right click): if clicking a plant part, request harvest
+mouse.Button2Down:Connect(function()
+    local unitRay = camera:ScreenPointToRay(mouse.X, mouse.Y)
+    local ray = Ray.new(unitRay.Origin, unitRay.Direction * 500)
+    local hitPart = workspace:FindPartOnRay(ray, player.Character)
+    if hitPart and hitPart.Parent and hitPart.Parent.Name == "Plants" or hitPart.Name:match("^Plant_") then
+        -- find the top plant instance (it might be the part itself)
+        local plantInstance = hitPart
+        if plantInstance and plantInstance.Parent and plantInstance.Parent.Name ~= "Plants" then
+            -- assume the part itself is the plant; if inside Plants folder, fine
+        end
+        -- send harvest request (server will validate owner & maturity)
+        HarvestPlant:FireServer(plantInstance)
+    end
+end)
+
+-- Optional: show crosshair or simple hover info when mousing over plant owner/maturity
+RunService.RenderStepped:Connect(function()
+    local unitRay = camera:ScreenPointToRay(mouse.X, mouse.Y)
+    local ray = Ray.new(unitRay.Origin, unitRay.Direction * 500)
+    local hitPart = workspace:FindPartOnRay(ray, player.Character)
+    if hitPart and hitPart.Parent and hitPart.Parent.Name == "Plants" then
+        local mature = hitPart:FindFirstChild("Mature")
+        if mature and mature.Value then
+            harvestLabel.Text = "Right-click to harvest (Mature!)"
+        else
+            harvestLabel.Text = "Not mature yet"
+        end
+    else
+        harvestLabel.Text = "Right-click plant to harvest when green"
+    end
+end)
