@@ -1,0 +1,213 @@
+-- Luigi UI Library (Rayfield-style)
+local Luigi = {}
+Luigi.__index = Luigi
+
+-- SERVICES
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+-- CREATE WINDOW
+function Luigi:CreateWindow(options)
+    local Window = {}
+    Window.__index = Window
+    options = options or {}
+    Window.Theme = options.Theme or {
+        Accent = Color3.fromRGB(0,200,0),
+        Background = Color3.fromRGB(22,22,22),
+        Sidebar = Color3.fromRGB(18,18,18),
+        TopBar = Color3.fromRGB(26,26,26),
+        Element = Color3.fromRGB(30,30,30),
+        Text = Color3.fromRGB(255,255,255),
+        SubText = Color3.fromRGB(150,150,150)
+    }
+    Window.Name = options.Name or "[Luigi]"
+    Window.Player = Players.LocalPlayer
+    Window.Pages = {}
+
+    -- SCREEN GUI
+    Window.Gui = Instance.new("ScreenGui", game.CoreGui)
+
+    -- MAIN FRAME
+    Window.Main = Instance.new("Frame", Window.Gui)
+    Window.Main.Name = "MainUI"
+    Window.Main.Size = UDim2.new(0,550,0,350)
+    Window.Main.Position = UDim2.new(0.5,-275,0.5,-175)
+    Window.Main.BackgroundColor3 = Window.Theme.Background
+    Window.Main.BorderSizePixel = 0
+    Instance.new("UICorner", Window.Main).CornerRadius = UDim.new(0,12)
+    Luigi:MakeDraggable(Window.Main)
+
+    -- SIDEBAR
+    Window.Sidebar = Instance.new("Frame", Window.Main)
+    Window.Sidebar.Size = UDim2.new(0,130,1,0)
+    Window.Sidebar.BackgroundColor3 = Window.Theme.Sidebar
+    Window.Sidebar.BorderSizePixel = 0
+    Instance.new("UICorner", Window.Sidebar).CornerRadius = UDim.new(0,12)
+    local SideList = Instance.new("UIListLayout", Window.Sidebar)
+    SideList.Padding = UDim.new(0,8)
+    SideList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+    -- LOGO
+    local Logo = Instance.new("TextLabel", Window.Sidebar)
+    Logo.Size = UDim2.new(1,-20,0,50)
+    Logo.Text = Window.Name
+    Logo.BackgroundTransparency = 1
+    Logo.Font = Enum.Font.GothamBold
+    Logo.TextSize = 22
+    Logo.TextColor3 = Window.Theme.Accent
+
+    -- PAGES FOLDER
+    Window.PagesFolder = Instance.new("Folder", Window.Main)
+
+    -- TOPBAR
+    Luigi:CreateTopBar(Window)
+
+    -- NOTIFICATIONS
+    Luigi:CreateNotifications(Window)
+
+    -- L BUTTON (toggle)
+    Luigi:CreateLButton(Window)
+
+    return setmetatable(Window, Window)
+end
+
+-- DRAGGING FUNCTION
+function Luigi:MakeDraggable(frame)
+    local dragging, dragInput, dragStart, startPos
+    local function update(input)
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X,
+                                    startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then update(input) end
+    end)
+end
+
+-- TOPBAR
+function Luigi:CreateTopBar(Window)
+    Window.TopBar = Instance.new("Frame", Window.Main)
+    Window.TopBar.Size = UDim2.new(1,-130,0,60)
+    Window.TopBar.Position = UDim2.new(0,130,0,0)
+    Window.TopBar.BackgroundColor3 = Window.Theme.TopBar
+    Window.TopBar.BorderSizePixel = 0
+
+    local pfp = Players:GetUserThumbnailAsync(Window.Player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
+    local PFP = Instance.new("ImageLabel", Window.TopBar)
+    PFP.Size = UDim2.new(0,50,0,50)
+    PFP.Position = UDim2.new(0,10,0.5,-25)
+    PFP.Image = pfp
+    PFP.BackgroundTransparency = 1
+    Instance.new("UICorner", PFP).CornerRadius = UDim.new(1,0)
+
+    local NameLabel = Instance.new("TextLabel", Window.TopBar)
+    NameLabel.Size = UDim2.new(0,200,1,0)
+    NameLabel.Position = UDim2.new(0,70,0,0)
+    NameLabel.BackgroundTransparency = 1
+    NameLabel.Text = Window.Player.DisplayName
+    NameLabel.TextColor3 = Window.Theme.Text
+    NameLabel.Font = Enum.Font.GothamBold
+    NameLabel.TextSize = 20
+    NameLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    local Stats = Instance.new("TextLabel", Window.TopBar)
+    Stats.Position = UDim2.new(0,70,1,-22)
+    Stats.Size = UDim2.new(0,300,0,20)
+    Stats.Text = "⭐ Level: 12   💰 Coins: 3400   ⚡ Power: 52"
+    Stats.BackgroundTransparency = 1
+    Stats.TextColor3 = Window.Theme.SubText
+    Stats.Font = Enum.Font.Gotham
+    Stats.TextSize = 14
+    Stats.TextXAlignment = Enum.TextXAlignment.Left
+end
+
+-- NOTIFICATIONS
+function Luigi:CreateNotifications(Window)
+    Window.Note = Instance.new("TextLabel", Window.Gui)
+    Window.Note.Size = UDim2.new(0,260,0,45)
+    Window.Note.Position = UDim2.new(0.5,-130,0.1,-20)
+    Window.Note.BackgroundColor3 = Window.Theme.Accent
+    Window.Note.Text = ""
+    Window.Note.Font = Enum.Font.GothamSemibold
+    Window.Note.TextSize = 18
+    Window.Note.TextColor3 = Color3.new(1,1,1)
+    Window.Note.Visible = false
+    Instance.new("UICorner", Window.Note).CornerRadius = UDim.new(0,12)
+
+    function Window:Notify(msg)
+        Window.Note.Text = msg
+        Window.Note.Visible = true
+        TweenService:Create(Window.Note,TweenInfo.new(0.25),{BackgroundTransparency=0}):Play()
+        task.wait(3)
+        TweenService:Create(Window.Note,TweenInfo.new(0.25),{BackgroundTransparency=1}):Play()
+        task.wait(0.25)
+        Window.Note.Visible = false
+    end
+end
+
+-- CREATE TABS
+function Luigi:CreateTab(Window, name, icon)
+    local Btn = Instance.new("TextButton", Window.Sidebar)
+    Btn.Size = UDim2.new(0,110,0,40)
+    Btn.BackgroundColor3 = Window.Theme.Element
+    Btn.Text = icon.."  "..name
+    Btn.Font = Enum.Font.GothamSemibold
+    Btn.TextColor3 = Window.Theme.Text
+    Btn.TextSize = 16
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0,10)
+
+    local Page = Instance.new("ScrollingFrame", Window.PagesFolder)
+    Page.Size = UDim2.new(1,-130,1,-60)
+    Page.Position = UDim2.new(0,130,0,60)
+    Page.CanvasSize = UDim2.new(0,0,0,1000)
+    Page.BackgroundTransparency = 1
+    Page.Visible = false
+    Instance.new("UIListLayout", Page).Padding = UDim.new(0,6)
+
+    Btn.MouseButton1Click:Connect(function()
+        for _,p in pairs(Window.PagesFolder:GetChildren()) do p.Visible = false end
+        Page.Visible = true
+    end)
+
+    Window.Pages[name] = Page
+    return Page
+end
+
+-- L BUTTON
+function Luigi:CreateLButton(Window)
+    local LButton = Instance.new("TextButton", Window.Gui)
+    LButton.Size = UDim2.new(0,50,0,50)
+    LButton.Position = UDim2.new(0.9,0,0.1,0)
+    LButton.BackgroundColor3 = Window.Theme.Accent
+    LButton.TextColor3 = Color3.fromRGB(255,255,255)
+    LButton.Text = "L"
+    LButton.Font = Enum.Font.GothamBold
+    LButton.TextSize = 28
+    Instance.new("UICorner", LButton).CornerRadius = UDim.new(0,8)
+
+    Luigi:MakeDraggable(LButton)
+
+    local IsOpen = true
+    LButton.MouseButton1Click:Connect(function()
+        IsOpen = not IsOpen
+        Window.Main.Visible = IsOpen
+    end)
+end
+
+return Luigi
